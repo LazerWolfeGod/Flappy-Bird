@@ -2,8 +2,9 @@ import pygame,math,random,time,copy
 import ai
 import PyUI
 pygame.init()
-scale = 0.8
+scale = 1.0
 screen = pygame.display.set_mode((1500*scale, 1000*scale))
+pygame.display.set_caption('Flappy Bird')
 pygame.scrap.init()
 ui = PyUI.UI()
 ui.defaultcol = (224,96,16)
@@ -135,6 +136,55 @@ class MAIN:
         self.scale = scale
         self.trainingmode = False
         self.aiplayer = True
+        self.humanplayer = True
+        
+        self.birbx = 100
+        self.wallvelocity = 10
+        
+        self.basebackground = pygame.image.load('background.png')
+        self.background = pygame.transform.scale(self.basebackground,(self.basebackground.get_width()*self.scale,self.basebackground.get_height()*self.scale))
+
+        self.done = False
+        self.clock = pygame.time.Clock()
+
+        self.drawscreen = True
+        self.drawnets = False
+        self.score = 0
+        self.makeui()
+        
+    def makeui(self):
+        ### main menu ###
+        ui.makebutton(750,850,'GO',140,command=self.startgame,center=True,roundedcorners=8,bordercol=(199,187,166),border=5,spacing=8,horizontalspacing=16,textoffsety=3)
+        ui.maketext(750,200,'',270,img=pygame.image.load('title.png'),center=True)
+
+        ui.makecheckbox(300,400,100,ID='human toggle',center=True,bindtoggle=['training toggle'],toggle=True,roundedcorners=5)
+        ui.maketext(360,403,'Human Player',80,centery=True,backingcol=(68,182,204))
+        ui.makecheckbox(300,500,100,ID='ai toggle',center=True,bindtoggle=['training toggle'],toggle=True,roundedcorners=5)
+        ui.maketext(360,503,'AI player',80,centery=True,backingcol=(68,182,204))
+        ui.makecheckbox(300,630,100,ID='training toggle',center=True,bindtoggle=['human toggle','ai toggle'],toggle=False,roundedcorners=5)
+        ui.maketext(360,633,'Training Mode',80,centery=True,backingcol=(68,182,204))
+
+        ui.makeslider(1000,500,155,25,maxp=2.0,minp=0.2,increment=0.2,startp=scale,command=self.updatescaletext,ID='scaleslider',roundedcorners=10,containedslider=True)
+        ui.maketext(1000,440,'Scale: '+str(round(ui.IDs['scaleslider'].slider,1)),ID='scaletext',backingcol=(68,182,204))
+        ui.makebutton(1000,550,'Apply',command=self.updatescale)
+        ### pause menu ###
+        ui.makebutton(750,400,'Resume',80,ui.menuback,menu='pause',center=True,roundedcorners=8,bordercol=(199,187,166),border=5,spacing=8,horizontalspacing=16,textoffsety=3)
+        ui.makebutton(750,500,'Main menu',80,lambda: ui.movemenu('main'),menu='pause',center=True,roundedcorners=8,bordercol=(199,187,166),border=5,spacing=8,horizontalspacing=16,textoffsety=3)
+        ui.scaleset(self.scale)
+    def updatescaletext(self):
+        ui.IDs['scaletext'].text = 'Scale: '+str(round(ui.IDs['scaleslider'].slider,1))
+        ui.IDs['scaletext'].refresh(ui)
+    def updatescale(self):
+        self.scale = round(ui.IDs['scaleslider'].slider,1)
+        global scale
+        scale = self.scale
+        ui.scaleset(self.scale)
+        screen = pygame.display.set_mode((1500*self.scale, 1000*self.scale))
+        self.background = pygame.transform.scale(self.basebackground,(self.basebackground.get_width()*self.scale,self.basebackground.get_height()*self.scale))
+    def startgame(self):
+        self.trainingmode = ui.IDs['training toggle'].toggle
+        self.aiplayer = ui.IDs['ai toggle'].toggle
+        self.humanplayer = ui.IDs['human toggle'].toggle
         if self.trainingmode:
             self.batchsize = 100
             self.generation = 0
@@ -144,26 +194,9 @@ class MAIN:
             self.newnets = [ai.AI(170,20,140,200,7,5,1,1,'flappy bird ai')]
         self.maxscore = 1
         
-        self.birbx = 100
-        self.wallvelocity = 10
-        
-        self.background = pygame.image.load('background.png')
-        self.background = pygame.transform.scale(self.background,(self.background.get_width()*self.scale,self.background.get_height()*self.scale))
-
-        self.done = False
-        self.clock = pygame.time.Clock()
-        self.score = 0
         self.gengame()
-
-        self.drawscreen = True
-        self.drawnets = False
-        self.makeui()
-        
-    def makeui(self):
-        ui.makebutton(750,850,'GO',140,command=lambda: ui.movemenu('game'),center=True,roundedcorners=8,bordercol=(199,187,166),border=5)
-        ui.maketext(750,200,'',270,img=pygame.image.load('title.png'),center=True)
-        ui.scaleset(scale)
-        
+        ui.movemenu('game')
+        ui.escapeback = False
     def main(self):
         while not self.done:
             events = ui.loadtickdata()
@@ -172,6 +205,9 @@ class MAIN:
                 if event.type == pygame.QUIT:
                     self.done = True
                 if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        if ui.activemenu == 'game': ui.movemenu('pause')
+                        elif ui.activemenu == 'pause': ui.menuback()
                     if event.key == pygame.K_SPACE:
                         self.spacedown = True
                     if event.key == pygame.K_F3:
@@ -181,8 +217,9 @@ class MAIN:
                         if not self.drawscreen: self.drawscreen = True
                         else: self.drawscreen = False
             screen.blit(self.background,(0,0))
-            if ui.activemenu == 'game':
-                self.gametick()
+            if ui.activemenu in ['game','pause']:
+                if ui.activemenu == 'game':
+                    self.gametick()
                 self.drawgame()
             ui.rendergui(screen)
             pygame.display.flip()
@@ -246,8 +283,10 @@ class MAIN:
         if self.score>self.maxscore:
             self.maxscore = self.score
         if not self.trainingmode:
+            self.birbs = []
             if not self.aiplayer: print('your score was '+str(self.score))
-            self.birbs = [BIRB(self.birbx,400,False,0,self.scale)]
+            if self.humanplayer:
+                self.birbs.append(BIRB(self.birbx,400,False,0,self.scale))
             if self.aiplayer:
                 self.birbs.insert(0,BIRB(self.birbx,400,True,1,self.scale))
                 self.birbs[0].net = copy.deepcopy(self.newnets[0])
